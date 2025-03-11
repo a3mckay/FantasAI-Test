@@ -26,20 +26,15 @@ client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Load environment variables
 load_dotenv()
+
 WEAVIATE_URL = os.getenv("WEAVIATE_URL")
 WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY")
 
-# Ensure API Keys are set correctly
-if not WEAVIATE_URL:
-    raise ValueError("❌ Weaviate URL not found. Make sure it is stored in the .env file.")
-if not WEAVIATE_API_KEY:
-    raise ValueError("❌ Weaviate API key not found. Make sure it is stored in the .env file.")
-
-# ✅ Corrected Weaviate v4 Client Connection
 weaviate_client = weaviate.WeaviateClient(
-    url=WEAVIATE_URL,  
+    http_host=WEAVIATE_URL,  
     auth_client=weaviate.auth.AuthApiKey(WEAVIATE_API_KEY)
 )
+
 
 
 # ✅ Test Weaviate connection
