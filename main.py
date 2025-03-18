@@ -264,9 +264,10 @@ def chatbot_response(user_input):
 
 import sys
 
+# ✅ Start FastAPI for API deployment
 if __name__ == "__main__":
-    # ✅ Only run the chatbot interactively if using a local terminal (not in Railway)
-    if "railway.app" not in os.getenv("WEAVIATE_URL", ""):
+    # ✅ Only run the chatbot interactively if NOT on Railway
+    if "RAILWAY_ENVIRONMENT" not in os.environ:
         try:
             while True:
                 user_input = input("Ask about a fantasy player (or type 'exit' to quit): ").strip()
@@ -293,9 +294,8 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"⚠️ Error closing Weaviate: {e}")
 
-# ✅ Start FastAPI for Railway deployment
-else:
-    import uvicorn
-
-    if __name__ == "__main__":
+    # ✅ If running on Railway, start the FastAPI server instead
+    else:
+        import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
