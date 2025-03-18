@@ -2,4 +2,5 @@ weaviate-client>=4.0.0
 openai
 pandas
 python-dotenv
-flask
+fastapi
+uvicorn[standard]
