@@ -1,8 +1,11 @@
 import os
 import weaviate
-import openai  # ✅ Keep this for chatbot functionality
+import openai
+import uvicorn
 from dotenv import load_dotenv
 from weaviate.classes.init import Auth
+from fastapi import FastAPI
+from weaviate.collections.classes.filters import Filter
 
 # Load environment variables from .env file
 load_dotenv()
@@ -11,11 +14,6 @@ load_dotenv()
 weaviate_url = os.getenv("WEAVIATE_URL")
 weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")  # ✅ Keep OpenAI API Key
-
-# ✅ Debugging: Print values to confirm they are set
-print(f"🔍 Debug: WEAVIATE_URL = {weaviate_url}")
-print(f"🔍 Debug: WEAVIATE_API_KEY = {weaviate_api_key}")
-print(f"🔍 Debug: OPENAI_API_KEY = {openai_api_key}")
 
 # ✅ Debugging: Check if values are loaded
 print(f"🔍 Debug: WEAVIATE_URL = {os.getenv('WEAVIATE_URL')}")
@@ -103,6 +101,56 @@ You are a fantasy baseball expert who writes in the style of Michael Halpern. Yo
 
 # ✅ Initialize OpenAI Client
 openai_client = openai.OpenAI(api_key=openai_api_key)
+
+# ✅ Create FastAPI app
+app = FastAPI()
+
+# ✅ Convert Chatbot to Work Over Web API
+@app.get("/player/{player_name}")
+def get_player_info(player_name: str):
+    """Fetches player information from Weaviate."""
+    print(f"🔍 Searching for player: {player_name}...")
+    # ✅ API Endpoint for OpenAI Analysis of a Player
+    @app.get("/analysis/{player_name}")
+    def analyze_player(player_name: str):
+        """Fetches player data and sends it to OpenAI for deeper analysis."""
+        player_data = get_player_info(player_name)  # Fetch player data
+
+        if "error" in player_data:
+            return player_data  # Return error if player not found
+
+        # ✅ Send data to OpenAI
+        openai_response = get_openai_analysis(player_data)
+        return {"player_name": player_name, "openai_analysis": openai_response}
+
+    try:
+        # ✅ Search Weaviate for the player
+        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
+            filters=Filter.by_property("player_name").equal(player_name),
+            limit=1
+        )
+
+        if not query_result.objects:
+            return {"error": f"No information found for {player_name}."}
+
+        # ✅ Extract player data
+        obj = query_result.objects[0]
+        summary = obj.properties.get("summary", "No summary available.")
+        rankings = obj.properties.get("rankings", {})
+        batting_stats = obj.properties.get("batting_stats", {})
+        pitching_stats = obj.properties.get("pitching_stats", {})
+
+        return {
+            "player_name": player_name,
+            "summary": summary,
+            "rankings": rankings,
+            "batting_stats": batting_stats,
+            "pitching_stats": pitching_stats
+        }
+
+    except Exception as e:
+        return {"error": f"⚠️ Error retrieving player data: {e}"}
+
 
 # ✅ Function to get OpenAI analysis ONLY using retrieved data
 def get_openai_analysis(comparison_text):
