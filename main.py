@@ -262,29 +262,40 @@ def chatbot_response(user_input):
     else:
         return "⚠️ I can only compare two players at a time. Try again with just two names."
 
-try:
-    # Your chatbot execution logic here
-    while True:
-        user_input = input("Ask about a fantasy player (or type 'exit' to quit): ").strip()
+import sys
 
-        if user_input.lower() == "exit":
-            print("👋 Exiting chatbot. Have a great day!")
-            break
+if __name__ == "__main__":
+    # ✅ Only run the chatbot interactively if using a local terminal (not in Railway)
+    if "railway.app" not in os.getenv("WEAVIATE_URL", ""):
+        try:
+            while True:
+                user_input = input("Ask about a fantasy player (or type 'exit' to quit): ").strip()
 
-        if not user_input:
-            print("⚠️ Please enter a valid player name.")
-            continue
+                if user_input.lower() == "exit":
+                    print("👋 Exiting chatbot. Have a great day!")
+                    break
 
-        response = chatbot_response(user_input)
-        print("\n💬 Chatbot Response:", response)
+                if not user_input:
+                    print("⚠️ Please enter a valid player name.")
+                    continue
 
-except KeyboardInterrupt:
-    print("\n🛑 Chatbot interrupted by user.")
+                response = chatbot_response(user_input)
+                print("\n💬 Chatbot Response:", response)
 
-finally:
-    # ✅ Ensure Weaviate client is closed properly
-    try:
-        weaviate_client.close()
-        print("✅ Weaviate connection closed. Exiting cleanly.")
-    except Exception as e:
-        print(f"⚠️ Error closing Weaviate: {e}")
+        except KeyboardInterrupt:
+            print("\n🛑 Chatbot interrupted by user.")
+
+        finally:
+            # ✅ Ensure Weaviate client is closed properly
+            try:
+                weaviate_client.close()
+                print("✅ Weaviate connection closed. Exiting cleanly.")
+            except Exception as e:
+                print(f"⚠️ Error closing Weaviate: {e}")
+
+# ✅ Start FastAPI for Railway deployment
+else:
+    import uvicorn
+
+    if __name__ == "__main__":
+        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
