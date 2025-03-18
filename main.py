@@ -110,16 +110,16 @@ app = FastAPI()
 def get_player_info(player_name: str):
     """Fetches player information from Weaviate."""
     print(f"🔍 Searching for player: {player_name}...")
-    # ✅ API Endpoint for OpenAI Analysis of a Player
+ # ✅ API Endpoint for OpenAI Analysis of a Player
     @app.get("/analysis/{player_name}")
     def analyze_player(player_name: str):
         """Fetches player data and sends it to OpenAI for deeper analysis."""
         player_data = get_player_info(player_name)  # Fetch player data
-
+    
         if "error" in player_data:
-            return player_data  # Return error if player not found
-
-        # ✅ Send data to OpenAI
+                return player_data  # Return error if player not found
+    
+            # ✅ Send data to OpenAI
         openai_response = get_openai_analysis(player_data)
         return {"player_name": player_name, "openai_analysis": openai_response}
 
@@ -150,6 +150,23 @@ def get_player_info(player_name: str):
 
     except Exception as e:
         return {"error": f"⚠️ Error retrieving player data: {e}"}
+@app.get("/compare")
+def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation"):
+    """API endpoint to compare two players based on Weaviate data and OpenAI analysis."""
+    player1_data = fetch_player_data(player1, raw_data=True)
+    player2_data = fetch_player_data(player2, raw_data=True)
+
+    if not player1_data or not player2_data:
+        return {"error": f"Not enough information on {player1} or {player2}."}
+
+    # Use OpenAI to generate an analysis
+    openai_response = compare_players(player1, player1_data, player2, player2_data, context)
+
+    return {
+        "player1": player1,
+        "player2": player2,
+        "analysis": openai_response
+    }
 
 
 # ✅ Function to get OpenAI analysis ONLY using retrieved data
