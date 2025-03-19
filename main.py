@@ -184,6 +184,10 @@ def compare_players(player1, player1_data, player2, player2_data, user_context):
 
     return response.choices[0].message.content
 
+@app.get("/")
+def root():
+    return {"message": "API is running! Visit /docs for API documentation."}
+
 # ✅ Start FastAPI for API deployment
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
