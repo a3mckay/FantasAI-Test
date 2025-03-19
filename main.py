@@ -126,6 +126,27 @@ def analyze_player(player_name: str):
     openai_response = get_openai_analysis(player_data)
     return {"player_name": player_name, "openai_analysis": openai_response}
 
+@app.get("/compare")
+def compare_players_api(
+    player1: str = Query(..., description="First player's name"),
+    player2: str = Query(..., description="Second player's name"),
+    context: str = Query("Standard dynasty evaluation", description="User context for the comparison")
+):
+    """API endpoint to compare two players based on Weaviate data and OpenAI analysis."""
+
+    # ✅ Fetch player data
+    player1_data = fetch_player_data(player1, raw_data=True)
+    player2_data = fetch_player_data(player2, raw_data=True)
+
+    if not player1_data or not player2_data:
+        return {"error": f"⚠️ Missing data for {player1} or {player2}."}
+
+    # ✅ Call OpenAI comparison function
+    openai_response = compare_players(player1, player1_data, player2, player2_data, context)
+
+    return {"player1": player1, "player2": player2, "comparison": openai_response}
+
+
 # ✅ Initialize OpenAI Client
 openai_client = openai.OpenAI(api_key=openai_api_key)
 
