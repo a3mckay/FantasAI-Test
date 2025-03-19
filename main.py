@@ -150,14 +150,6 @@ def get_player_info(player_name: str):
 
     except Exception as e:
         return {"error": f"⚠️ Error retrieving player data: {e}"}
-@app.get("/compare")
-def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation"):
-    """API endpoint to compare two players based on Weaviate data and OpenAI analysis."""
-    player1_data = fetch_player_data(player1, raw_data=True)
-    player2_data = fetch_player_data(player2, raw_data=True)
-
-    if not player1_data or not player2_data:
-        return {"error": f"Not enough information on {player1} or {player2}."}
 
     # Use OpenAI to generate an analysis
     openai_response = compare_players(player1, player1_data, player2, player2_data, context)
@@ -212,6 +204,30 @@ def chatbot_response(user_input):
     if not potential_players:
         return "⚠️ I couldn't identify any player names in your request. Try again with specific player names."
 
+from fastapi import Query
+
+@app.get("/compare")
+def compare_players_api(
+    player1: str = Query(..., description="First player's name"),
+    player2: str = Query(..., description="Second player's name"),
+    context: str = Query("Standard dynasty evaluation", description="User context for the comparison")
+):
+    """API endpoint to compare two players based on Weaviate data and OpenAI analysis."""
+
+    # ✅ Fetch player data from Weaviate
+    player1_data = fetch_player_data(player1, raw_data=True)
+    player2_data = fetch_player_data(player2, raw_data=True)
+
+    # ✅ If missing data, return error
+    if not player1_data or not player2_data:
+        return {"error": f"⚠️ Missing data for {player1} or {player2}."}
+
+    # ✅ Call compare_players
+    openai_response = compare_players(player1, player1_data, player2, player2_data, context)
+
+    return {"player1": player1, "player2": player2, "comparison": openai_response}
+
+    
     # ✅ Compare two players using OpenAI
     def compare_players(player1, player1_data, player2, player2_data, user_context):
         """
