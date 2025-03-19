@@ -151,7 +151,10 @@ def compare_players_api(
 
     return {"player1": player1, "player2": player2, "comparison": openai_response}
 
-# ✅ Function to Compare Two Players using OpenAI
+# ✅ Initialize OpenAI Client
+openai_client = openai.OpenAI(api_key=openai_api_key)
+
+# ✅ Compare two players using OpenAI
 def compare_players(player1, player1_data, player2, player2_data, user_context):
     """
     Compares two players using Weaviate stats and considers user context (e.g., team needs).
@@ -162,6 +165,8 @@ def compare_players(player1, player1_data, player2, player2_data, user_context):
     A user is asking for a dynasty comparison between **{player1}** and **{player2}**.
     Here is their additional context: "{user_context}"
 
+    Here are the stats for each player:
+
     **{player1}:** 
     {player1_data}
 
@@ -169,17 +174,19 @@ def compare_players(player1, player1_data, player2, player2_data, user_context):
     {player2_data}
 
     Based on the user's needs and the provided stats, explain **who is the better dynasty option**.
+    Be analytical, consider power, positional scarcity, upside, and other dynasty factors.
     """
 
     response = openai_client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": SYSTEM_PROMPT},  # ✅ Ensures it follows Michael Halpern's style
             {"role": "user", "content": prompt}
         ]
     )
 
     return response.choices[0].message.content
+
 
 # ✅ Start FastAPI for API deployment
 if __name__ == "__main__":
