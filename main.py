@@ -45,6 +45,23 @@ else:
 # ✅ Create FastAPI app
 app = FastAPI()
 
+# ✅ Define SYSTEM_PROMPT globally
+SYSTEM_PROMPT = """
+    You are a fantasy baseball expert who writes in the style of Michael Halpern. Your writing style includes:
+    - **Sentence length:** Long-form analysis, averaging 25+ words per sentence.
+    - **Frequent statistical analysis:** Uses advanced baseball metrics such as K%, BB%, OPS, OBP, ERA, WHIP, and wOBA to provide insights.
+    - **Tone:** Analytical, data-driven, engaging, and sometimes funny. Your responses should mimic how Michael Halpern presents fantasy baseball analysis.
+    - **Player evaluations:** Compares players based on advanced metrics and real-world performance trends.
+ You can only use the following provided statistics and rankings.
+    Do NOT speculate beyond the provided data. If a comparison point is missing, acknowledge it instead of guessing.
+
+    Here is the data you MUST use (no external knowledge allowed):
+
+    {comparison_text}
+
+    Based on this information alone, which player has the edge and why?
+    """
+
 # ✅ Function to fetch player data from Weaviate
 def fetch_player_data(player_name, raw_data=False):
     """
@@ -109,18 +126,18 @@ def analyze_player(player_name: str):
     openai_response = get_openai_analysis(player_data)
     return {"player_name": player_name, "openai_analysis": openai_response}
 
-# ✅ Function to get OpenAI analysis ONLY using retrieved data
+# ✅ Initialize OpenAI Client
+openai_client = openai.OpenAI(api_key=openai_api_key)
+
+# ✅ Function to get OpenAI analysis
 def get_openai_analysis(comparison_text):
-    SYSTEM_PROMPT = """
-    You are a fantasy baseball expert who writes in the style of Michael Halpern. Your writing style includes:
-    - **Sentence length:** Long-form analysis, averaging 25+ words per sentence.
-    - **Frequent statistical analysis:** Uses advanced baseball metrics such as K%, BB%, OPS, OBP, ERA, WHIP, and wOBA to provide insights.
-    - **Tone:** Analytical, data-driven, engaging, and sometimes funny. Your responses should mimic how Michael Halpern presents fantasy baseball analysis.
-    - **Player evaluations:** Compares players based on advanced metrics and real-world performance trends.
- You can only use the following provided statistics and rankings.
+    prompt = f"""
+    You are a fantasy baseball expert analyzing player comparisons.
+
+    You can only use the following provided statistics and rankings.
     Do NOT speculate beyond the provided data. If a comparison point is missing, acknowledge it instead of guessing.
 
-    Here is the data you MUST use (no external knowledge allowed):
+    Here is the data you MUST use:
 
     {comparison_text}
 
@@ -137,33 +154,8 @@ def get_openai_analysis(comparison_text):
 
     return response.choices[0].message.content
 
-# ✅ API Endpoint to Compare Two Players
-@app.get("/compare")
-def compare_players_api(
-    player1: str = Query(..., description="First player's name"),
-    player2: str = Query(..., description="Second player's name"),
-    context: str = Query("Standard dynasty evaluation", description="User context for the comparison")
-):
-    """API endpoint to compare two players based on Weaviate data and OpenAI analysis."""
-    player1_data = fetch_player_data(player1, raw_data=True)
-    player2_data = fetch_player_data(player2, raw_data=True)
-
-    if not player1_data or not player2_data:
-        return {"error": f"⚠️ Missing data for {player1} or {player2}."}
-
-    # ✅ Call compare_players function
-    openai_response = compare_players(player1, player1_data, player2, player2_data, context)
-
-    return {"player1": player1, "player2": player2, "comparison": openai_response}
-
-# ✅ Initialize OpenAI Client
-openai_client = openai.OpenAI(api_key=openai_api_key)
-
-# ✅ Compare two players using OpenAI
+# ✅ Function to compare two players
 def compare_players(player1, player1_data, player2, player2_data, user_context):
-    """
-    Compares two players using Weaviate stats and considers user context (e.g., team needs).
-    """
     prompt = f"""
     You are a fantasy baseball expert who writes in the style of Michael Halpern.
 
@@ -185,13 +177,12 @@ def compare_players(player1, player1_data, player2, player2_data, user_context):
     response = openai_client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},  # ✅ Ensures it follows Michael Halpern's style
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
         ]
     )
 
     return response.choices[0].message.content
-
 
 # ✅ Start FastAPI for API deployment
 if __name__ == "__main__":
