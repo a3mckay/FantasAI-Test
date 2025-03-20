@@ -7,6 +7,7 @@ from weaviate.classes.init import Auth
 from fastapi import FastAPI, Query
 from weaviate.collections.classes.filters import Filter
 import re
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load environment variables from .env file
 load_dotenv()
@@ -44,6 +45,14 @@ else:
 
 # ✅ Create FastAPI app
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ⚠️ Allows all domains (for now, update this later for security)
+    allow_credentials=True,
+    allow_methods=["*"],  # ✅ Allows GET, POST, DELETE, etc.
+    allow_headers=["*"],  # ✅ Allows all headers
+)
 
 # ✅ Define SYSTEM_PROMPT globally
 SYSTEM_PROMPT = """
