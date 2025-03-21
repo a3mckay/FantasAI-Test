@@ -157,6 +157,7 @@ def compare_players_api(
 
     return {"player1": player1, "player2": player2, "comparison": openai_response}
 
+# Compare multiple players
 @app.get("/compare-multi")
 def compare_multiple_players_api(
     players: List[str] = Query(..., description="List of player names to compare"),
@@ -167,6 +168,67 @@ def compare_multiple_players_api(
     if len(players) < 2:
         return {"error": "⚠️ You must include at least two players to compare."}
 
+    @app.get("/trade")
+    def evaluate_trade(
+        team1: List[str] = Query(..., description="List of players on Team 1"),
+        team2: List[str] = Query(..., description="List of players on Team 2"),
+        context: str = Query("Standard dynasty context", description="User context for the trade")
+    ):
+        """Evaluate a trade between two teams of players."""
+
+        if not team1 or not team2:
+            return {"error": "⚠️ Each team must include at least one player."}
+
+        all_players = team1 + team2
+        player_data_map = {}
+        missing = []
+
+        for player in all_players:
+            data = fetch_player_data(player, raw_data=True)
+            if not data:
+                missing.append(player)
+            else:
+                player_data_map[player] = data
+
+        if missing:
+            return {"error": f"⚠️ Missing data for: {', '.join(missing)}"}
+
+        # Format player blocks by team
+        def format_team(team):
+            return "\n\n".join([f"**{p}:**\n{player_data_map[p]}" for p in team])
+
+        prompt = f"""
+        You are a fantasy baseball expert evaluating a dynasty trade.
+
+        The user wants to know who wins this trade and why. Use only the provided player data and context.
+
+        📦 **Team 1 is trading:**  
+        {format_team(team1)}
+
+        🔄 **Team 2 is trading:**  
+        {format_team(team2)}
+
+        ⚾ **Context:** {context}
+
+        Please compare the overall value each side is giving and receiving. Consider age, position scarcity, upside, team needs, and other dynasty trade factors.
+        """
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        return {
+            "team1": team1,
+            "team2": team2,
+            "context": context,
+            "analysis": response.choices[0].message.content
+        }
+
+    
     # ✅ Fetch data for each player
     player_data_map = {}
     missing_players = []
