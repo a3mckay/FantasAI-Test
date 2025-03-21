@@ -8,6 +8,8 @@ from fastapi import FastAPI, Query
 from weaviate.collections.classes.filters import Filter
 import re
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -154,6 +156,63 @@ def compare_players_api(
     openai_response = compare_players(player1, player1_data, player2, player2_data, context)
 
     return {"player1": player1, "player2": player2, "comparison": openai_response}
+
+@app.get("/compare-multi")
+def compare_multiple_players_api(
+    players: List[str] = Query(..., description="List of player names to compare"),
+    context: str = Query("Standard dynasty evaluation", description="User context for the comparison")
+):
+    """Compare multiple players using Weaviate data and OpenAI analysis."""
+
+    if len(players) < 2:
+        return {"error": "⚠️ You must include at least two players to compare."}
+
+    # ✅ Fetch data for each player
+    player_data_map = {}
+    missing_players = []
+
+    for player in players:
+        data = fetch_player_data(player, raw_data=True)
+        if not data:
+            missing_players.append(player)
+        else:
+            player_data_map[player] = data
+
+    if missing_players:
+        return {"error": f"⚠️ Missing data for: {', '.join(missing_players)}"}
+
+    # ✅ Format prompt for OpenAI
+    player_blocks = []
+    for name, data in player_data_map.items():
+        player_blocks.append(f"**{name}:**\n{data}")
+
+    prompt = f"""
+    You are a fantasy baseball expert who writes in the style of Michael Halpern.
+
+    A user is asking for a dynasty comparison between the following players: {", ".join(players)}.
+    Here is their additional context: "{context}"
+
+    Here are the stats for each player:
+
+    {chr(10).join(player_blocks)}
+
+    Based on the user's needs and the provided stats, explain **who is the better dynasty option and why**.
+    Be analytical, consider power, positional scarcity, upside, and other dynasty factors.
+    """
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return {
+        "players": players,
+        "context": context,
+        "comparison": response.choices[0].message.content
+    }
 
 
 # ✅ Initialize OpenAI Client
