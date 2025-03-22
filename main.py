@@ -198,17 +198,14 @@ Choose the better side and explain why using ONLY the provided data.
 @app.get("/players")
 def get_all_player_names():
     try:
-        results = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(limit=10000)
-
-        player_names = [
-            obj.properties.get("player_name")
-            for obj in results.objects
-            if obj.properties.get("player_name")
-        ]
-
-        return {"players": player_names}
+        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
+            limit=10000
+        )
+        names = [obj.properties["player_name"] for obj in query_result.objects if "player_name" in obj.properties]
+        unique_names = sorted(set(names))  # ✅ Deduplicate and sort
+        return {"players": unique_names}
     except Exception as e:
-        return {"error": f"⚠️ Could not retrieve player names: {e}"}
+        return {"error": f"⚠️ Error fetching player names: {str(e)}"}
 
 
 # === OpenAI Support ===
