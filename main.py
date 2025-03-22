@@ -195,6 +195,22 @@ Choose the better side and explain why using ONLY the provided data.
 
     return {"analysis": response.choices[0].message.content}
 
+@app.get("/players")
+def get_all_player_names():
+    try:
+        results = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(limit=10000)
+
+        player_names = [
+            obj.properties.get("player_name")
+            for obj in results.objects
+            if obj.properties.get("player_name")
+        ]
+
+        return {"players": player_names}
+    except Exception as e:
+        return {"error": f"⚠️ Could not retrieve player names: {e}"}
+
+
 # === OpenAI Support ===
 
 openai_client = openai.OpenAI(api_key=openai_api_key)
