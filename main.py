@@ -218,7 +218,7 @@ def get_all_player_names():
 @app.get("/export-queries")
 def export_queries():
     print("✅ /export-queries route hit")
-    file_path = "user_queries.xlsx"
+    file_path = "/mnt/data/user_queries.xlsx"
     if not os.path.exists(file_path):
         print("❌ File not found!")
         raise HTTPException(status_code=404, detail="Not Found")
@@ -233,7 +233,8 @@ def export_queries():
 # === Save Queries ===
 
 def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
-    file_path = "user_queries.xlsx"
+    file_path = "/mnt/data/user_queries.xlsx"
+
 
     if Path(file_path).exists():
         df = pd.read_excel(file_path, sheet_name=None)
