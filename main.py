@@ -84,10 +84,12 @@ def root():
 
 @app.get("/player/{player_name}")
 def get_player_info(player_name: str):
-    result = fetch_player_data(player_name, raw_data=True)
-    if result and isinstance(result, dict) and "error" not in result:
+    data = fetch_player_data(player_name, raw_data=True)
+    if data and isinstance(data, dict) and "error" not in data:
+        print(f"📝 Saving query — Feature: summary, Players: ['{player_name}'], Context:")
         save_query("summary", [player_name])
-    return result
+    return data
+
 
 @app.get("/analysis/{player_name}")
 def analyze_player(player_name: str):
