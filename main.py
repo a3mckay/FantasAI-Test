@@ -84,8 +84,10 @@ def root():
 
 @app.get("/player/{player_name}")
 def get_player_info(player_name: str):
-    save_query("summary", [player_name])
-    return fetch_player_data(player_name, raw_data=True)
+    result = fetch_player_data(player_name, raw_data=True)
+    if result and isinstance(result, dict) and "error" not in result:
+        save_query("summary", [player_name])
+    return result
 
 @app.get("/analysis/{player_name}")
 def analyze_player(player_name: str):
