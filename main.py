@@ -206,23 +206,31 @@ Choose the better side and explain why using ONLY the provided data.
 @app.get("/players")
 def get_all_player_names():
     try:
-        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(limit=10000)
-        names = [str(obj.properties["player_name"]) for obj in query_result.objects if "player_name" in obj.properties]
-        return {"players": sorted(set(names))}
+        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
+            limit=10000
+        )
+        names = [obj.properties["player_name"] for obj in query_result.objects if "player_name" in obj.properties]
+        unique_names = sorted(set(str(name) for name in names))
+        return {"players": unique_names}
     except Exception as e:
         return {"error": f"⚠️ Error fetching player names: {str(e)}"}
 
 @app.get("/export-queries")
 def export_queries():
+    print("✅ /export-queries route hit")
     file_path = "user_queries.xlsx"
     if not os.path.exists(file_path):
+        print("❌ File not found!")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    timestamp = datetime.now().isoformat().replace(":", "-").replace(".", "-")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    export_name = f"user_queries_{timestamp}.xlsx"
+    print(f"📁 Exporting as: {export_name}")
+
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"user_queries_{timestamp}.xlsx"
+        filename=export_name
     )
 
 # === Save Queries ===
@@ -230,7 +238,6 @@ def export_queries():
 def save_query(feature_type, player_names, context=""):
     file_path = "user_queries.xlsx"
 
-    # Load or create main query sheet
     if Path(file_path).exists():
         df = pd.read_excel(file_path, sheet_name=None)
         queries_df = df.get("user_queries", pd.DataFrame())
@@ -246,7 +253,6 @@ def save_query(feature_type, player_names, context=""):
 
     queries_df = pd.concat([queries_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Generate count sheet
     counts = {}
     for _, row in queries_df.iterrows():
         for p in str(row["players"]).split(", "):
