@@ -206,13 +206,9 @@ Choose the better side and explain why using ONLY the provided data.
 @app.get("/players")
 def get_all_player_names():
     try:
-        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
-            limit=10000
-        )
-        names = [obj.properties["player_name"] for obj in query_result.objects if "player_name" in obj.properties]
-        unique_names = sorted(set(str(name) for name in names))
-  # ✅ Deduplicate and sort
-        return {"players": unique_names}
+        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(limit=10000)
+        names = [str(obj.properties["player_name"]) for obj in query_result.objects if "player_name" in obj.properties]
+        return {"players": sorted(set(names))}
     except Exception as e:
         return {"error": f"⚠️ Error fetching player names: {str(e)}"}
 
@@ -221,10 +217,12 @@ def export_queries():
     file_path = "user_queries.xlsx"
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Not Found")
+
+    timestamp = datetime.now().isoformat().replace(":", "-").replace(".", "-")
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"user_queries_{datetime.now().isoformat().replace(':', '-').replace('.', '-')}.xlsx"
+        filename=f"user_queries_{timestamp}.xlsx"
     )
 
 # === Save Queries ===
@@ -232,14 +230,13 @@ def export_queries():
 def save_query(feature_type, player_names, context=""):
     file_path = "user_queries.xlsx"
 
-    # Load existing data or create new DataFrame
+    # Load or create main query sheet
     if Path(file_path).exists():
         df = pd.read_excel(file_path, sheet_name=None)
         queries_df = df.get("user_queries", pd.DataFrame())
     else:
         queries_df = pd.DataFrame()
 
-    # Add new row
     new_row = {
         "timestamp": datetime.now().isoformat(),
         "feature": feature_type,
@@ -249,11 +246,10 @@ def save_query(feature_type, player_names, context=""):
 
     queries_df = pd.concat([queries_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Count appearances per player per feature
+    # Generate count sheet
     counts = {}
     for _, row in queries_df.iterrows():
         for p in str(row["players"]).split(", "):
-
             if p:
                 key = (p, row["feature"])
                 counts[key] = counts.get(key, 0) + 1
@@ -263,7 +259,6 @@ def save_query(feature_type, player_names, context=""):
         for k, v in counts.items()
     ])
 
-    # Save both sheets to Excel
     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         queries_df.to_excel(writer, sheet_name="user_queries", index=False)
         count_df.to_excel(writer, sheet_name="player_counts", index=False)
