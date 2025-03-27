@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 import pandas as pd
 from pathlib import Path
 
-# Load environment variables
+# === Load environment variables ===
 load_dotenv()
 
 weaviate_url = os.getenv("WEAVIATE_URL")
@@ -25,6 +25,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not weaviate_url or not weaviate_api_key or not openai_api_key:
     raise ValueError("❌ Missing environment variables.")
 
+# === Connect to Weaviate ===
 weaviate_client = weaviate.connect_to_weaviate_cloud(
     cluster_url=weaviate_url,
     auth_credentials=Auth.api_key(weaviate_api_key),
@@ -36,6 +37,7 @@ if weaviate_client.is_ready():
 else:
     raise ConnectionError("❌ Failed to connect to Weaviate.")
 
+# === FastAPI Setup ===
 app = FastAPI()
 
 app.add_middleware(
@@ -86,13 +88,6 @@ def root():
 def get_player_info(player_name: str):
     save_query("summary", [player_name])
     return fetch_player_data(player_name, raw_data=True)
-
-@app.get("/analysis/{player_name}")
-def analyze_player(player_name: str):
-    data = fetch_player_data(player_name, raw_data=True)
-    if not data:
-        return {"error": f"⚠️ No data for {player_name}."}
-    return {"player_name": player_name, "openai_analysis": get_openai_analysis(data)}
 
 @app.get("/compare")
 def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation"):
@@ -200,15 +195,13 @@ Choose the better side and explain why using ONLY the provided data.
         ]
     )
 
-    save_query("trade", request.teamA + request.teamB, request.context, request.teamA, request.teamB)
+    save_query("trade", [], request.context, request.teamA, request.teamB)
     return {"analysis": response.choices[0].message.content}
 
 @app.get("/players")
 def get_all_player_names():
     try:
-        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
-            limit=10000
-        )
+        query_result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(limit=10000)
         names = [obj.properties["player_name"] for obj in query_result.objects if "player_name" in obj.properties]
         unique_names = sorted(set(str(name) for name in names))
         return {"players": unique_names}
@@ -217,17 +210,17 @@ def get_all_player_names():
 
 @app.get("/export-queries")
 def export_queries():
-    print("✅ /export-queries route hit")
     file_path = "/mnt/data/user_queries.xlsx"
     if not os.path.exists(file_path):
-        print("❌ File not found!")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
+    timestamp_str = datetime.now().strftime("%Y-%m-%d-%H-%M")
+    filename = f"halp-bot-export-{timestamp_str}.xlsx"
+
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"halp-bot-export-{timestamp}.xlsx"
+        filename=filename
     )
 
 # === Save Queries ===
@@ -235,52 +228,52 @@ def export_queries():
 def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
     file_path = "/mnt/data/user_queries.xlsx"
 
-
     if Path(file_path).exists():
         df = pd.read_excel(file_path, sheet_name=None)
         queries_df = df.get("user_queries", pd.DataFrame())
     else:
         queries_df = pd.DataFrame()
 
-    def pad_list(lst, length):
-        return lst + [""] * (length - len(lst))
-
-    player_cols = pad_list(player_names, 10)
-    teamA_cols = pad_list(teamA or [], 10)
-    teamB_cols = pad_list(teamB or [], 10)
-
-    new_row = {
+    row = {
         "timestamp": datetime.now().isoformat(),
         "feature": feature_type,
-        "context": context,
+        "context": context if feature_type == "trade" else ""
     }
 
-    for i in range(10):
-        new_row[f"player_{i+1}"] = player_cols[i]
-        new_row[f"teamA_{i+1}"] = teamA_cols[i]
-        new_row[f"teamB_{i+1}"] = teamB_cols[i]
+    # Fill all fields with empty strings first
+    for i in range(1, 11):
+        row[f"player_{i}"] = ""
+        row[f"teamA_{i}"] = ""
+        row[f"teamB_{i}"] = ""
 
-    queries_df = pd.concat([queries_df, pd.DataFrame([new_row])], ignore_index=True)
+    # Handle summary
+    if feature_type == "summary":
+        row["summary_player"] = player_names[0] if player_names else ""
+    else:
+        row["summary_player"] = ""
 
-    # Generate player_counts sheet
-    counts = {}
-    for _, row in queries_df.iterrows():
-        for key in [f"player_{i+1}" for i in range(10)]:
-            p = str(row.get(key, "")).strip()
-            if p:
-                feature = row.get("feature", "")
-                counts[(p, feature)] = counts.get((p, feature), 0) + 1
+    # Handle compare
+    if feature_type == "compare":
+        for i, player in enumerate(player_names):
+            if i < 10:
+                row[f"player_{i+1}"] = player
 
-    count_df = pd.DataFrame([
-        {"player": k[0], "feature": k[1], "count": v}
-        for k, v in counts.items()
-    ])
+    # Handle trade
+    if feature_type == "trade":
+        for i, player in enumerate(teamA or []):
+            if i < 10:
+                row[f"teamA_{i+1}"] = player
+        for i, player in enumerate(teamB or []):
+            if i < 10:
+                row[f"teamB_{i+1}"] = player
 
+    queries_df = pd.concat([queries_df, pd.DataFrame([row])], ignore_index=True)
+
+    # Save
     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         queries_df.to_excel(writer, sheet_name="user_queries", index=False)
-        count_df.to_excel(writer, sheet_name="player_counts", index=False)
 
-# === OpenAI Support ===
+# === OpenAI Setup ===
 
 openai_client = openai.OpenAI(api_key=openai_api_key)
 
