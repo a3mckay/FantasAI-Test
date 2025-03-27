@@ -217,6 +217,11 @@ def export_queries():
 
     df = pd.read_excel(file_path, sheet_name="user_queries")
 
+    # Reorder columns explicitly: timestamp, feature, context, summary_player, then others
+    column_order = ['timestamp', 'feature', 'context', 'summary_player'] + \
+                   [col for col in df.columns if col not in ['timestamp', 'feature', 'context', 'summary_player']]
+    df = df[column_order]
+
     player_columns = [col for col in df.columns if col.startswith(('summary_player', 'player_', 'teamA_', 'teamB_'))]
 
     player_counts = {}
@@ -243,7 +248,6 @@ def export_queries():
                     player = row[col]
                     if isinstance(player, str) and player.strip():
                         players.add(player.strip())
-
 
         for player in players:
             if player not in player_counts:
@@ -274,7 +278,6 @@ def export_queries():
         filename=filename
     )
 
-
 # === Save Queries ===
 
 def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
@@ -292,25 +295,18 @@ def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
         "context": context if feature_type == "trade" else ""
     }
 
-    # Fill all fields with empty strings first
     for i in range(1, 11):
         row[f"player_{i}"] = ""
         row[f"teamA_{i}"] = ""
         row[f"teamB_{i}"] = ""
 
-    # Handle summary
-    if feature_type == "summary":
-        row["summary_player"] = player_names[0] if player_names else ""
-    else:
-        row["summary_player"] = ""
+    row["summary_player"] = player_names[0] if feature_type == "summary" and player_names else ""
 
-    # Handle compare
     if feature_type == "compare":
         for i, player in enumerate(player_names):
             if i < 10:
                 row[f"player_{i+1}"] = player
 
-    # Handle trade
     if feature_type == "trade":
         for i, player in enumerate(teamA or []):
             if i < 10:
@@ -321,7 +317,6 @@ def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
 
     queries_df = pd.concat([queries_df, pd.DataFrame([row])], ignore_index=True)
 
-    # Save
     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         queries_df.to_excel(writer, sheet_name="user_queries", index=False)
 
