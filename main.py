@@ -84,12 +84,8 @@ def root():
 
 @app.get("/player/{player_name}")
 def get_player_info(player_name: str):
-    data = fetch_player_data(player_name, raw_data=True)
-    if data and isinstance(data, dict) and "error" not in data:
-        print(f"📝 Saving query — Feature: summary, Players: ['{player_name}'], Context:")
-        save_query("summary", [player_name])
-    return data
-
+    save_query("summary", [player_name])
+    return fetch_player_data(player_name, raw_data=True)
 
 @app.get("/analysis/{player_name}")
 def analyze_player(player_name: str):
@@ -204,7 +200,7 @@ Choose the better side and explain why using ONLY the provided data.
         ]
     )
 
-    save_query("trade", request.teamA + request.teamB, request.context)
+    save_query("trade", request.teamA + request.teamB, request.context, request.teamA, request.teamB)
     return {"analysis": response.choices[0].message.content}
 
 @app.get("/players")
@@ -227,19 +223,16 @@ def export_queries():
         print("❌ File not found!")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    export_name = f"user_queries_{timestamp}.xlsx"
-    print(f"📁 Exporting as: {export_name}")
-
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=export_name
+        filename=f"halp-bot-export-{timestamp}.xlsx"
     )
 
 # === Save Queries ===
 
-def save_query(feature_type, player_names, context=""):
+def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
     file_path = "user_queries.xlsx"
 
     if Path(file_path).exists():
@@ -248,21 +241,34 @@ def save_query(feature_type, player_names, context=""):
     else:
         queries_df = pd.DataFrame()
 
+    def pad_list(lst, length):
+        return lst + [""] * (length - len(lst))
+
+    player_cols = pad_list(player_names, 10)
+    teamA_cols = pad_list(teamA or [], 10)
+    teamB_cols = pad_list(teamB or [], 10)
+
     new_row = {
         "timestamp": datetime.now().isoformat(),
         "feature": feature_type,
-        "players": ", ".join(player_names),
         "context": context,
     }
 
+    for i in range(10):
+        new_row[f"player_{i+1}"] = player_cols[i]
+        new_row[f"teamA_{i+1}"] = teamA_cols[i]
+        new_row[f"teamB_{i+1}"] = teamB_cols[i]
+
     queries_df = pd.concat([queries_df, pd.DataFrame([new_row])], ignore_index=True)
 
+    # Generate player_counts sheet
     counts = {}
     for _, row in queries_df.iterrows():
-        for p in str(row["players"]).split(", "):
+        for key in [f"player_{i+1}" for i in range(10)]:
+            p = str(row.get(key, "")).strip()
             if p:
-                key = (p, row["feature"])
-                counts[key] = counts.get(key, 0) + 1
+                feature = row.get("feature", "")
+                counts[(p, feature)] = counts.get((p, feature), 0) + 1
 
     count_df = pd.DataFrame([
         {"player": k[0], "feature": k[1], "count": v}
