@@ -5,15 +5,15 @@ import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime
 from weaviate.classes.init import Auth
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, HTTPException
 from weaviate.collections.classes.filters import Filter
 import re
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
-from fastapi import HTTPException
-
+import pandas as pd
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
@@ -84,6 +84,7 @@ def root():
 
 @app.get("/player/{player_name}")
 def get_player_info(player_name: str):
+    save_query("summary", [player_name])
     return fetch_player_data(player_name, raw_data=True)
 
 @app.get("/analysis/{player_name}")
@@ -99,6 +100,7 @@ def compare_players_api(player1: str, player2: str, context: str = "Standard dyn
     data2 = fetch_player_data(player2, raw_data=True)
     if not data1 or not data2:
         return {"error": f"⚠️ Missing data for {player1} or {player2}."}
+    save_query("compare", [player1, player2], context)
     return {
         "player1": player1,
         "player2": player2,
@@ -143,6 +145,7 @@ Who is the best dynasty option and why?
         ]
     )
 
+    save_query("compare", players, context)
     return {"players": players, "context": context, "comparison": response.choices[0].message.content}
 
 # === Trade Evaluator ===
@@ -197,6 +200,7 @@ Choose the better side and explain why using ONLY the provided data.
         ]
     )
 
+    save_query("trade", request.teamA + request.teamB, request.context)
     return {"analysis": response.choices[0].message.content}
 
 @app.get("/players")
@@ -206,7 +210,8 @@ def get_all_player_names():
             limit=10000
         )
         names = [obj.properties["player_name"] for obj in query_result.objects if "player_name" in obj.properties]
-        unique_names = sorted(set(names))  # ✅ Deduplicate and sort
+        unique_names = sorted(set(str(name) for name in names))
+  # ✅ Deduplicate and sort
         return {"players": unique_names}
     except Exception as e:
         return {"error": f"⚠️ Error fetching player names: {str(e)}"}
@@ -221,6 +226,47 @@ def export_queries():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=f"user_queries_{datetime.now().isoformat().replace(':', '-').replace('.', '-')}.xlsx"
     )
+
+# === Save Queries ===
+
+def save_query(feature_type, player_names, context=""):
+    file_path = "user_queries.xlsx"
+
+    # Load existing data or create new DataFrame
+    if Path(file_path).exists():
+        df = pd.read_excel(file_path, sheet_name=None)
+        queries_df = df.get("user_queries", pd.DataFrame())
+    else:
+        queries_df = pd.DataFrame()
+
+    # Add new row
+    new_row = {
+        "timestamp": datetime.now().isoformat(),
+        "feature": feature_type,
+        "players": ", ".join(player_names),
+        "context": context,
+    }
+
+    queries_df = pd.concat([queries_df, pd.DataFrame([new_row])], ignore_index=True)
+
+    # Count appearances per player per feature
+    counts = {}
+    for _, row in queries_df.iterrows():
+        for p in str(row["players"]).split(", "):
+
+            if p:
+                key = (p, row["feature"])
+                counts[key] = counts.get(key, 0) + 1
+
+    count_df = pd.DataFrame([
+        {"player": k[0], "feature": k[1], "count": v}
+        for k, v in counts.items()
+    ])
+
+    # Save both sheets to Excel
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+        queries_df.to_excel(writer, sheet_name="user_queries", index=False)
+        count_df.to_excel(writer, sheet_name="player_counts", index=False)
 
 # === OpenAI Support ===
 
