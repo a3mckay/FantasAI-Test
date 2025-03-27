@@ -3,6 +3,7 @@ import weaviate
 import openai
 import uvicorn
 from dotenv import load_dotenv
+from datetime import datetime
 from weaviate.classes.init import Auth
 from fastapi import FastAPI, Query, Request
 from weaviate.collections.classes.filters import Filter
@@ -10,6 +11,9 @@ import re
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+
 
 # Load environment variables
 load_dotenv()
@@ -207,6 +211,16 @@ def get_all_player_names():
     except Exception as e:
         return {"error": f"⚠️ Error fetching player names: {str(e)}"}
 
+@app.get("/export-queries")
+def export_queries():
+    file_path = "user_queries.xlsx"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(
+        path=file_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"user_queries_{datetime.now().isoformat().replace(':', '-').replace('.', '-')}.xlsx"
+    )
 
 # === OpenAI Support ===
 
