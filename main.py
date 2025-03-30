@@ -56,8 +56,31 @@ You are a fantasy baseball expert who writes in the style of Michael Halpern. Yo
 - Compare players based only on provided data
 """
 
-# === Player Data ===
+# === Projection Formatter ===
+def format_projection(column_name: str, value: str, tab_name: str = "") -> str:
+    if column_name == "2025 BATTING":
+        return f"📊 *2025 projected batting stats:* {value}"
+    elif column_name == "2025 PITCHING":
+        return f"📊 *2025 projected pitching stats:* {value}"
+    elif column_name == "PRIME BATTING":
+        return f"🔮 *Prime batting projection:* {value}"
+    elif column_name == "PRIME PITCHING" or column_name == "PRIME PITCHING ":
+        return f"🔮 *Prime pitching projection:* {value}"
+    if tab_name in {"Batters", "C", "1B", "2B", "3B", "SS", "OF", "DH"}:
+        if column_name.endswith(".1"):
+            base_stat = column_name.replace(".1", "")
+            return f"🔮 *Prime projection for {base_stat}:* {value}"
+        else:
+            return f"📊 *2025 projected {column_name}:* {value}"
+    if tab_name in {"SP", "RP"}:
+        if column_name.endswith(".1"):
+            base_stat = column_name.replace(".1", "")
+            return f"🔮 *Prime projection for {base_stat}:* {value}"
+        else:
+            return f"📊 *2025 projected {column_name}:* {value}"
+    return f"*{column_name}:* {value}"
 
+# === Player Data ===
 def fetch_player_data(player_name, raw_data=False):
     print(f"🔍 Fetching player: {player_name}")
     try:
@@ -70,9 +93,16 @@ def fetch_player_data(player_name, raw_data=False):
 
         obj = result.objects[0]
         summary = obj.properties.get("summary", "No summary available.")
+        tab_name = obj.properties.get("tab", "")
+        projections = []
+
+        for col, val in obj.properties.items():
+            if val and any(kw in col for kw in ["2025", "PRIME", ".1"]):
+                projections.append(format_projection(col, val, tab_name))
+
         return {
             "player_name": player_name,
-            "summary": summary,
+            "summary": summary + ("\n\n" + "\n".join(projections) if projections else ""),
             "rankings": obj.properties.get("rankings", {}),
             "batting_stats": obj.properties.get("batting_stats", {}),
             "pitching_stats": obj.properties.get("pitching_stats", {}),
@@ -142,8 +172,6 @@ Who is the best dynasty option and why?
 
     save_query("compare", players, context)
     return {"players": players, "context": context, "comparison": response.choices[0].message.content}
-
-# === Trade Evaluator ===
 
 class TradeRequest(BaseModel):
     teamA: List[str]
@@ -217,7 +245,6 @@ def export_queries():
 
     df = pd.read_excel(file_path, sheet_name="user_queries")
 
-    # Reorder columns explicitly: timestamp, feature, context, summary_player, then others
     column_order = ['timestamp', 'feature', 'context', 'summary_player'] + \
                    [col for col in df.columns if col not in ['timestamp', 'feature', 'context', 'summary_player']]
     df = df[column_order]
@@ -278,8 +305,6 @@ def export_queries():
         filename=filename
     )
 
-# === Save Queries ===
-
 def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
     file_path = "/mnt/data/user_queries.xlsx"
 
@@ -319,8 +344,6 @@ def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
 
     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         queries_df.to_excel(writer, sheet_name="user_queries", index=False)
-
-# === OpenAI Setup ===
 
 openai_client = openai.OpenAI(api_key=openai_api_key)
 

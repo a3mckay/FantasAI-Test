@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.git
     pkgs.libxcrypt
     pkgs.cacert
     pkgs.libuv
