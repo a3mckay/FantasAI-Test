@@ -98,11 +98,11 @@ def fetch_player_data(player_name, raw_data=False):
 
         for col, val in obj.properties.items():
             if val and any(kw in col for kw in ["2025", "PRIME", ".1"]):
-                projections.append(format_projection(col, val, tab_name))
+                projections.append(format_projection(col, str(val), str(tab_name)))
 
         return {
             "player_name": player_name,
-            "summary": summary + ("\n\n" + "\n".join(projections) if projections else ""),
+            "summary": str(summary) + ("\n\n" + "\n".join(projections) if projections else ""),
             "rankings": obj.properties.get("rankings", {}),
             "batting_stats": obj.properties.get("batting_stats", {}),
             "pitching_stats": obj.properties.get("pitching_stats", {}),
@@ -110,6 +110,73 @@ def fetch_player_data(player_name, raw_data=False):
     except Exception as e:
         return {"error": f"⚠️ Error: {e}"}
 
+# === OpenAI Setup ===
+openai_client = openai.OpenAI(api_key=openai_api_key)
+
+def compare_players(player1, data1, player2, data2, context):
+    prompt = f"""
+Compare {player1} and {player2} in a dynasty format.
+Context: {context}
+
+**{player1}**:
+{data1}
+
+**{player2}**:
+{data2}
+
+Who is better and why?
+"""
+    response = openai_client.chat.completions.create(
+        model="gpt-4",
+        temperature=0.4,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return response.choices[0].message.content
+
+def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
+    file_path = "/mnt/data/user_queries.xlsx"
+
+    if Path(file_path).exists():
+        df = pd.read_excel(file_path, sheet_name=None)
+        queries_df = df.get("user_queries", pd.DataFrame())
+    else:
+        queries_df = pd.DataFrame()
+
+    row = {
+        "timestamp": datetime.now().isoformat(),
+        "feature": feature_type,
+        "context": context if feature_type == "trade" else ""
+    }
+
+    for i in range(1, 11):
+        row[f"player_{i}"] = ""
+        row[f"teamA_{i}"] = ""
+        row[f"teamB_{i}"] = ""
+
+    row["summary_player"] = player_names[0] if feature_type == "summary" and player_names else ""
+
+    if feature_type == "compare":
+        for i, player in enumerate(player_names):
+            if i < 10:
+                row[f"player_{i+1}"] = player
+
+    if feature_type == "trade":
+        for i, player in enumerate(teamA or []):
+            if i < 10:
+                row[f"teamA_{i+1}"] = player
+        for i, player in enumerate(teamB or []):
+            if i < 10:
+                row[f"teamB_{i+1}"] = player
+
+    queries_df = pd.concat([queries_df, pd.DataFrame([row])], ignore_index=True)
+
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+        queries_df.to_excel(writer, sheet_name="user_queries", index=False)
+
+# === Routes ===
 @app.get("/")
 def root():
     return {"message": "API is running."}
@@ -133,9 +200,7 @@ def compare_players_api(player1: str, player2: str, context: str = "Standard dyn
     }
 
 @app.get("/compare-multi")
-def compare_multiple_players_api(
-    players: List[str] = Query(...), context: str = "Standard dynasty evaluation"
-):
+def compare_multiple_players_api(players: List[str] = Query(...), context: str = "Standard dynasty evaluation"):
     if len(players) < 2:
         return {"error": "⚠️ Need at least two players."}
 
@@ -164,6 +229,7 @@ Who is the best dynasty option and why?
 
     response = openai_client.chat.completions.create(
         model="gpt-4",
+        temperature=0.4,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -217,6 +283,7 @@ Choose the better side and explain why using ONLY the provided data.
 
     response = openai_client.chat.completions.create(
         model="gpt-4",
+        temperature=0.6,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -304,87 +371,6 @@ def export_queries():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename
     )
-
-def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
-    file_path = "/mnt/data/user_queries.xlsx"
-
-    if Path(file_path).exists():
-        df = pd.read_excel(file_path, sheet_name=None)
-        queries_df = df.get("user_queries", pd.DataFrame())
-    else:
-        queries_df = pd.DataFrame()
-
-    row = {
-        "timestamp": datetime.now().isoformat(),
-        "feature": feature_type,
-        "context": context if feature_type == "trade" else ""
-    }
-
-    for i in range(1, 11):
-        row[f"player_{i}"] = ""
-        row[f"teamA_{i}"] = ""
-        row[f"teamB_{i}"] = ""
-
-    row["summary_player"] = player_names[0] if feature_type == "summary" and player_names else ""
-
-    if feature_type == "compare":
-        for i, player in enumerate(player_names):
-            if i < 10:
-                row[f"player_{i+1}"] = player
-
-    if feature_type == "trade":
-        for i, player in enumerate(teamA or []):
-            if i < 10:
-                row[f"teamA_{i+1}"] = player
-        for i, player in enumerate(teamB or []):
-            if i < 10:
-                row[f"teamB_{i+1}"] = player
-
-    queries_df = pd.concat([queries_df, pd.DataFrame([row])], ignore_index=True)
-
-    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
-        queries_df.to_excel(writer, sheet_name="user_queries", index=False)
-
-openai_client = openai.OpenAI(api_key=openai_api_key)
-
-def get_openai_analysis(comparison_text):
-    prompt = f"""
-You are a fantasy baseball expert analyzing a player using the following data:
-
-{comparison_text}
-
-Who has the edge and why?
-"""
-    response = openai_client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
-
-def compare_players(player1, data1, player2, data2, context):
-    prompt = f"""
-Compare {player1} and {player2} in a dynasty format.
-Context: {context}
-
-**{player1}**:
-{data1}
-
-**{player2}**:
-{data2}
-
-Who is better and why?
-"""
-    response = openai_client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
