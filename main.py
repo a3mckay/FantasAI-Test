@@ -283,7 +283,7 @@ Choose the better side and explain why using ONLY the provided data.
 
     response = openai_client.chat.completions.create(
         model="gpt-4",
-        temperature=0.6,
+        temperature=0.3,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
