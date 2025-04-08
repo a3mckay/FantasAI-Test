@@ -57,16 +57,17 @@ WRITER_PROMPTS = {
     Compare players only using provided data.
     ''',
     "Razzball": '''
-    You are a fantasy baseball expert who writes for Razzball.
+    You are a fantasy baseball expert who writes for Razzball in the style of Grey Albright. You give advice for single season leagues -- no dynasty or keeper stuff.
     Your tone is casual, witty, and full of personality.
-    You often use terms like "shizz", references to pop culture, and humor to convey advice.
+    You often use terms like "shizz", references to pop culture, use a lot of double entendres with player names, and a ton of humor to convey advice.
     Always base your takes only on provided data.
     ''',
     "Both": '''
-    You are two fantasy baseball writers — one from Imaginary Brick Wall (long-form, stats-heavy, serious),
-    and one from Razzball (funny, sarcastic, personality-driven).
+    You are two fantasy baseball writers — one from Imaginary Brick Wall (long-form, stats-heavy, serious -- presents strictly a dynasty fantasy baseball perspective),
+    and one from Razzball (funny, sarcastic, personality-driven -- presents strictly from a single season fantasy baseball perspective).
     Present both of your takes on the players being discussed, making sure each uses their respective tone.
-    Do not blend the perspectives. Present them as separate viewpoints.
+    Do not blend the perspectives. Present them as separate viewpoints. 
+    Be sure to highlight the differences in dynasty vs. single-season fantasy baseball when responding as each writer.
     '''
 }
 
@@ -140,18 +141,20 @@ def get_prompt_for_writer(writer: str) -> str:
 
 
 def compare_players(player1, data1, player2, data2, context, writer="IBW"):
+    format_label = "a dynasty format" if writer == "IBW" else "a single-season format"
     prompt = f"""
-Compare {player1} and {player2} in a dynasty format.
-Context: {context}
+    Compare {player1} and {player2} in {format_label}.
+    Context: {context}
 
-**{player1}**:
-{data1}
+    **{player1}**:
+    {data1}
 
-**{player2}**:
-{data2}
+    **{player2}**:
+    {data2}
 
-Who is better and why?
-"""
+    Who is better and why?
+    """
+
     response = openai_client.chat.completions.create(
         model="gpt-4",
         temperature=0.4,
@@ -257,7 +260,8 @@ Context: {context}
 
 {chr(10).join(blocks)}
 
-Who is the best dynasty option and why?
+{"Who is the best dynasty option and why?" if writer == "IBW" else "Who is the best single-season option and why?"}
+
 """
 
     response = openai_client.chat.completions.create(
@@ -303,20 +307,23 @@ def evaluate_trade(request: TradeRequest):
     def format_team(team):
         return "\n\n".join([f"**{p}:**\n{player_data_map[p]}" for p in team])
 
+    evaluation_type = "a dynasty trade" if request.writer == "IBW" else "a single-season trade"
+
     prompt = f"""
-You are a fantasy baseball expert evaluating a dynasty trade.
+    You are a fantasy baseball expert evaluating {evaluation_type}.
 
-📦 Team A is trading:
-{format_team(request.teamA)}
+    📦 Team A is trading:
+    {format_team(request.teamA)}
 
-🔄 Team B is trading:
-{format_team(request.teamB)}
+    🔄 Team B is trading:
+    {format_team(request.teamB)}
 
-📝 Context:
-{request.context}
+    📝 Context:
+    {request.context}
 
-Choose the better side and explain why using ONLY the provided data.
-"""
+    Choose the better side and explain why using ONLY the provided data.
+    """
+
 
     response = openai_client.chat.completions.create(
         model="gpt-4",
