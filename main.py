@@ -95,10 +95,17 @@ def format_projection(column_name: str, value: str, tab_name: str = "") -> str:
     return f"*{column_name}:* {value}"
 
 # === Player Data ===
-def fetch_player_data(player_name, raw_data=False):
-    print(f"🔍 Fetching player: {player_name}")
+def fetch_player_data(player_name, raw_data=False, writer="IBW"):
+    print(f"🔍 Fetching player: {player_name} [Writer: {writer}]")
+
+    # Choose the collection based on writer
+    collection_name = {
+        "IBW": "FantasyPlayers",
+        "Razzball": "FantasyPlayersRazzball"
+    }.get(writer, "FantasyPlayers")  # Default fallback to IBW
+
     try:
-        result = weaviate_client.collections.get("FantasyPlayers").query.fetch_objects(
+        result = weaviate_client.collections.get(collection_name).query.fetch_objects(
             filters=Filter.by_property("player_name").equal(player_name),
             limit=1
         )
@@ -123,6 +130,7 @@ def fetch_player_data(player_name, raw_data=False):
         }
     except Exception as e:
         return {"error": f"⚠️ Error: {e}"}
+
 
 # === OpenAI Setup ===
 openai_client = openai.OpenAI(api_key=openai_api_key)
@@ -202,15 +210,15 @@ def root():
     return {"message": "API is running."}
 
 @app.get("/player/{player_name}")
-def get_player_info(player_name: str):
-    save_query("summary", [player_name], writer="IBW")
-    return fetch_player_data(player_name, raw_data=True)
+def get_player_info(player_name: str, writer: str = "IBW"):
+    save_query("summary", [player_name], writer=writer)
+    return fetch_player_data(player_name, raw_data=True, writer=writer)
 
 @app.get("/compare")
 def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation", writer: str = "IBW"):
 
-    data1 = fetch_player_data(player1, raw_data=True)
-    data2 = fetch_player_data(player2, raw_data=True)
+    data1 = fetch_player_data(player1, raw_data=True, writer=writer)
+    data2 = fetch_player_data(player2, raw_data=True, writer=writer)
     if not data1 or not data2:
         return {"error": f"⚠️ Missing data for {player1} or {player2}."}
     save_query("compare", [player1, player2], context, writer=writer)
@@ -233,7 +241,7 @@ def compare_multiple_players_api(
     missing = []
 
     for p in players:
-        data = fetch_player_data(p, raw_data=True)
+        data = fetch_player_data(p, raw_data=True, writer=writer)
         if not data:
             missing.append(p)
         else:
@@ -283,7 +291,7 @@ def evaluate_trade(request: TradeRequest):
     missing = []
 
     for player in all_players:
-        data = fetch_player_data(player, raw_data=True)
+        data = fetch_player_data(player, raw_data=True, writer=request.writer)
         if not data:
             missing.append(player)
         else:
