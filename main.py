@@ -48,13 +48,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SYSTEM_PROMPT = """
-You are a fantasy baseball expert who writes in the style of Michael Halpern. Your writing style includes:
-- Long-form analysis, averaging 25+ words per sentence
-- Frequent use of K%, BB%, OPS, ERA, WHIP, etc.
-- Analytical, engaging, sometimes funny
-- Compare players based only on provided data
-"""
+# === Writer Prompts ===
+WRITER_PROMPTS = {
+    "IBW": '''
+    You are a fantasy baseball expert who writes in the style of Michael Halpern (Imaginary Brick Wall).
+    Your tone includes: long-form analysis, 25+ word sentences, heavy use of K%, BB%, OPS, ERA, WHIP.
+    You write analytically, engagingly, and sometimes with humor.
+    Compare players only using provided data.
+    ''',
+    "Razzball": '''
+    You are a fantasy baseball expert who writes for Razzball.
+    Your tone is casual, witty, and full of personality.
+    You often use terms like "shizz", references to pop culture, and humor to convey advice.
+    Always base your takes only on provided data.
+    ''',
+    "Both": '''
+    You are two fantasy baseball writers — one from Imaginary Brick Wall (long-form, stats-heavy, serious),
+    and one from Razzball (funny, sarcastic, personality-driven).
+    Present both of your takes on the players being discussed, making sure each uses their respective tone.
+    Do not blend the perspectives. Present them as separate viewpoints.
+    '''
+}
 
 # === Projection Formatter ===
 def format_projection(column_name: str, value: str, tab_name: str = "") -> str:
@@ -113,7 +127,11 @@ def fetch_player_data(player_name, raw_data=False):
 # === OpenAI Setup ===
 openai_client = openai.OpenAI(api_key=openai_api_key)
 
-def compare_players(player1, data1, player2, data2, context):
+def get_prompt_for_writer(writer: str) -> str:
+    return WRITER_PROMPTS.get(writer, WRITER_PROMPTS["IBW"])  # fallback to IBW
+
+
+def compare_players(player1, data1, player2, data2, context, writer="IBW"):
     prompt = f"""
 Compare {player1} and {player2} in a dynasty format.
 Context: {context}
@@ -130,13 +148,13 @@ Who is better and why?
         model="gpt-4",
         temperature=0.4,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_prompt_for_writer(writer)},
             {"role": "user", "content": prompt}
         ]
     )
     return response.choices[0].message.content
 
-def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
+def save_query(feature_type, player_names, context="", teamA=None, teamB=None, writer="IBW"):
     file_path = "/mnt/data/user_queries.xlsx"
 
     if Path(file_path).exists():
@@ -148,8 +166,10 @@ def save_query(feature_type, player_names, context="", teamA=None, teamB=None):
     row = {
         "timestamp": datetime.now().isoformat(),
         "feature": feature_type,
-        "context": context if feature_type == "trade" else ""
+        "context": context if feature_type == "trade" else "",
+        "writer": writer
     }
+
 
     for i in range(1, 11):
         row[f"player_{i}"] = ""
@@ -183,24 +203,29 @@ def root():
 
 @app.get("/player/{player_name}")
 def get_player_info(player_name: str):
-    save_query("summary", [player_name])
+    save_query("summary", [player_name], writer="IBW")
     return fetch_player_data(player_name, raw_data=True)
 
 @app.get("/compare")
-def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation"):
+def compare_players_api(player1: str, player2: str, context: str = "Standard dynasty evaluation", writer: str = "IBW"):
+
     data1 = fetch_player_data(player1, raw_data=True)
     data2 = fetch_player_data(player2, raw_data=True)
     if not data1 or not data2:
         return {"error": f"⚠️ Missing data for {player1} or {player2}."}
-    save_query("compare", [player1, player2], context)
+    save_query("compare", [player1, player2], context, writer=writer)
     return {
         "player1": player1,
         "player2": player2,
-        "comparison": compare_players(player1, data1, player2, data2, context)
+        "comparison": compare_players(player1, data1, player2, data2, context, writer)
     }
 
 @app.get("/compare-multi")
-def compare_multiple_players_api(players: List[str] = Query(...), context: str = "Standard dynasty evaluation"):
+def compare_multiple_players_api(
+    players: List[str] = Query(...), 
+    context: str = "Standard dynasty evaluation",
+    writer: str = "IBW"
+    ):
     if len(players) < 2:
         return {"error": "⚠️ Need at least two players."}
 
@@ -231,18 +256,22 @@ Who is the best dynasty option and why?
         model="gpt-4",
         temperature=0.4,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_prompt_for_writer(writer)},
             {"role": "user", "content": prompt}
         ]
     )
 
-    save_query("compare", players, context)
+
+
+    save_query("compare", players, context, writer=writer)
     return {"players": players, "context": context, "comparison": response.choices[0].message.content}
 
 class TradeRequest(BaseModel):
     teamA: List[str]
     teamB: List[str]
     context: str = ""
+    writer: str = "IBW"
+
 
 @app.post("/trade")
 def evaluate_trade(request: TradeRequest):
@@ -285,12 +314,12 @@ Choose the better side and explain why using ONLY the provided data.
         model="gpt-4",
         temperature=0.3,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_prompt_for_writer(request.writer)},
             {"role": "user", "content": prompt}
         ]
     )
 
-    save_query("trade", [], request.context, request.teamA, request.teamB)
+    save_query("trade", [], request.context, request.teamA, request.teamB, writer=request.writer)
     return {"analysis": response.choices[0].message.content}
 
 @app.get("/players")
@@ -312,7 +341,7 @@ def export_queries():
 
     df = pd.read_excel(file_path, sheet_name="user_queries")
 
-    column_order = ['timestamp', 'feature', 'context', 'summary_player'] + \
+    column_order = ['timestamp', 'feature', 'writer', 'context', 'summary_player'] + \
                    [col for col in df.columns if col not in ['timestamp', 'feature', 'context', 'summary_player']]
     df = df[column_order]
 
@@ -362,9 +391,18 @@ def export_queries():
     filename = f"halp-bot-export-{timestamp_str}.xlsx"
     export_path = f"/mnt/data/{filename}"
 
+    # === Writer Counts ===
+    if "writer" in df.columns:
+        writer_feature_counts = df.groupby(["writer", "feature"]).size().unstack(fill_value=0).reset_index()
+        writer_feature_counts["total_queries"] = writer_feature_counts.sum(axis=1, numeric_only=True)
+    else:
+        writer_feature_counts = pd.DataFrame()
+
+    
     with pd.ExcelWriter(export_path, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="user_queries", index=False)
         counts_df.to_excel(writer, sheet_name="player_counts", index=False)
+        writer_feature_counts.to_excel(writer, sheet_name="writer_counts", index=False)
 
     return FileResponse(
         path=export_path,
