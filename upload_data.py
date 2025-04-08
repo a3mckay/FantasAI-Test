@@ -77,90 +77,151 @@ def upload_writer_data(writer_name="IBW"):
     print(f"🚀 Uploading data for writer: {writer_name}")
     rankings_folder = f"writers/{writer_name}/rankings"
 
+# 🔧 Ensure collection exists
+    from weaviate.classes.config import Property, DataType
+
+    collection_name = f"FantasyPlayers{writer_name}"
+    if collection_name not in weaviate_client.collections.list_all():
+        print(f"📁 Creating collection: {collection_name}")
+    weaviate_client.collections.create(
+        name=collection_name,
+        properties=[
+            Property(name="player_name", data_type=DataType.TEXT),
+            Property(name="summary", data_type=DataType.TEXT),
+    
+            Property(
+                name="rankings",
+                data_type=DataType.OBJECT,
+                nested_properties=[
+                    Property(name="OF_RANK", data_type=DataType.INT),
+                    Property(name="SP_RANK", data_type=DataType.INT),
+                    Property(name="RP_RANK", data_type=DataType.INT),
+                    Property(name="MAR_RANK", data_type=DataType.INT),
+                    Property(name="FEB_RANK", data_type=DataType.INT),
+                    Property(name="OBP_RANK", data_type=DataType.INT),
+                    Property(name="FYPD_RANK", data_type=DataType.INT),
+                    Property(name="Delta", data_type=DataType.INT),
+                ]
+            ),
+    
+            Property(
+                name="batting_stats",
+                data_type=DataType.OBJECT,
+                nested_properties=[
+                    Property(name="R", data_type=DataType.INT),
+                    Property(name="HR", data_type=DataType.INT),
+                    Property(name="RBI", data_type=DataType.INT),
+                    Property(name="AVG", data_type=DataType.NUMBER),
+                    Property(name="OBP", data_type=DataType.NUMBER),
+                    Property(name="SLG", data_type=DataType.NUMBER),
+                    Property(name="SB", data_type=DataType.INT),
+                ]
+            ),
+    
+            Property(
+                name="pitching_stats",
+                data_type=DataType.OBJECT,
+                nested_properties=[
+                    Property(name="Wins", data_type=DataType.INT),
+                    Property(name="ERA", data_type=DataType.NUMBER),
+                    Property(name="WHIP", data_type=DataType.NUMBER),
+                    Property(name="K", data_type=DataType.INT),
+                    Property(name="IP", data_type=DataType.INT),
+                ]
+            ),
+    
+            Property(name="source", data_type=DataType.TEXT)
+        ]
+    )
+
+
     for filename in os.listdir(rankings_folder):
-        if not filename.endswith(".xlsx"):
-            continue
-
-        file_path = os.path.join(rankings_folder, filename)
-        xls = pd.ExcelFile(file_path)
-
-        for sheet_name in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name)
-
-            if "NAME" not in df.columns or "SUMMARY" not in df.columns:
-                print(f"⚠️ Skipping {sheet_name}, required columns missing.")
+    
+            if not filename.endswith(".xlsx"):
                 continue
-
-            # ✅ Clean sheet name for Weaviate-safe usage
-            safe_sheet_name = re.sub(r'\W+', '_', sheet_name.strip())
-
-            for _, row in df.iterrows():
-                player_name = row.get("NAME", "Unknown Player")
-                summary = row.get("SUMMARY", "No summary available.")
-                rankings = {}
-
-                valid_columns = {
-                    "MAR RANK": "MAR_RANK",
-                    "FEB RANK": "FEB_RANK",
-                    "OBP RANK": "OBP_RANK",
-                    "Δ": "Delta",
-                    "OF RANK": "OF_RANK",
-                    "SP RANK": "SP_RANK",
-                    "RP RANK": "RP_RANK",
-                    "FYPD RANK": "FYPD_RANK"
-                }
-
-                for col, new_col in valid_columns.items():
-                    if col in df.columns:
-                        rankings[safe_sheet_name] = rankings.get(safe_sheet_name, {})
-                        value = row.get(col, "NR")
-                        if isinstance(value, str) and value.strip().upper() == "NR":
-                            rankings[safe_sheet_name][new_col] = None
-                        else:
-                            try:
-                                rankings[safe_sheet_name][new_col] = int(value)
-                            except ValueError:
-                                print(f"⚠️ Skipping invalid ranking for {player_name}: {col} = {value}")
-
-                batting_stats = {}
-                if "2025 BATTING" in df.columns:
-                    batting_stats = parse_batting_stats(row.get("2025 BATTING", ""))
-                elif all(stat in df.columns for stat in ["R", "HR", "RBI", "AVG", "OBP", "SLG", "SB"]):
-                    batting_stats = {
-                        "R": row.get("R", 0), "HR": row.get("HR", 0), "RBI": row.get("RBI", 0),
-                        "AVG": row.get("AVG", 0.0), "OBP": row.get("OBP", 0.0), "SLG": row.get("SLG", 0.0), "SB": row.get("SB", 0)
+    
+            file_path = os.path.join(rankings_folder, filename)
+            xls = pd.ExcelFile(file_path)
+    
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name)
+    
+                if "NAME" not in df.columns or "SUMMARY" not in df.columns:
+                    print(f"⚠️ Skipping {sheet_name}, required columns missing.")
+                    continue
+    
+                # ✅ Clean sheet name for Weaviate-safe usage
+                safe_sheet_name = re.sub(r'\W+', '_', sheet_name.strip())
+    
+                for _, row in df.iterrows():
+                    player_name = row.get("NAME", "Unknown Player")
+                    summary = row.get("SUMMARY", "No summary available.")
+                    rankings = {}
+    
+                    valid_columns = {
+                        "MAR RANK": "MAR_RANK",
+                        "FEB RANK": "FEB_RANK",
+                        "OBP RANK": "OBP_RANK",
+                        "Δ": "Delta",
+                        "OF RANK": "OF_RANK",
+                        "SP RANK": "SP_RANK",
+                        "RP RANK": "RP_RANK",
+                        "FYPD RANK": "FYPD_RANK"
                     }
-
-                pitching_stats = {}
-                if "2025 PITCHING" in df.columns:
-                    pitching_stats = parse_pitching_stats(row.get("2025 PITCHING", ""))
-                elif all(stat in df.columns for stat in ["W", "ERA", "WHIP", "SO", "IP"]):
-                    pitching_stats = {
-                        "Wins": row.get("W", 0), "ERA": row.get("ERA", 0.0),
-                        "WHIP": row.get("WHIP", 0.0), "K": row.get("SO", 0), "IP": row.get("IP", 0)
+    
+                    for col, new_col in valid_columns.items():
+                        if col in df.columns:
+                            rankings[safe_sheet_name] = rankings.get(safe_sheet_name, {})
+                            value = row.get(col, "NR")
+                            if isinstance(value, str) and value.strip().upper() == "NR":
+                                rankings[safe_sheet_name][new_col] = None
+                            else:
+                                try:
+                                    rankings[safe_sheet_name][new_col] = int(value)
+                                except ValueError:
+                                    print(f"⚠️ Skipping invalid ranking for {player_name}: {col} = {value}")
+    
+                    batting_stats = {}
+                    if "2025 BATTING" in df.columns:
+                        batting_stats = parse_batting_stats(row.get("2025 BATTING", ""))
+                    elif all(stat in df.columns for stat in ["R", "HR", "RBI", "AVG", "OBP", "SLG", "SB"]):
+                        batting_stats = {
+                            "R": row.get("R", 0), "HR": row.get("HR", 0), "RBI": row.get("RBI", 0),
+                            "AVG": row.get("AVG", 0.0), "OBP": row.get("OBP", 0.0), "SLG": row.get("SLG", 0.0), "SB": row.get("SB", 0)
+                        }
+    
+                    pitching_stats = {}
+                    if "2025 PITCHING" in df.columns:
+                        pitching_stats = parse_pitching_stats(row.get("2025 PITCHING", ""))
+                    elif all(stat in df.columns for stat in ["W", "ERA", "WHIP", "SO", "IP"]):
+                        pitching_stats = {
+                            "Wins": row.get("W", 0), "ERA": row.get("ERA", 0.0),
+                            "WHIP": row.get("WHIP", 0.0), "K": row.get("SO", 0), "IP": row.get("IP", 0)
+                        }
+                    # ✅ Convert NaN to None (JSON-safe)
+                    if pd.isna(summary):
+                        summary = "No summary available."
+                        
+                    player_data = {
+                        "player_name": player_name,
+                        "rankings": rankings,
+                        "batting_stats": batting_stats,
+                        "pitching_stats": pitching_stats,
+                        "summary": summary,
+                        "source": f"{writer_name} - {safe_sheet_name}"
                     }
-                # ✅ Convert NaN to None (JSON-safe)
-                if pd.isna(summary):
-                    summary = "No summary available."
-                    
-                player_data = {
-                    "player_name": player_name,
-                    "rankings": rankings,
-                    "batting_stats": batting_stats,
-                    "pitching_stats": pitching_stats,
-                    "summary": summary,
-                    "source": f"{writer_name} - {safe_sheet_name}"
-                }
-
-                print(f"📝 Preparing to upload: {player_data}")
-                try:
-                    weaviate_client.collections.get("FantasyPlayers").data.insert(player_data)
-                    print(f"✅ Uploaded {player_name} from {sheet_name}")
-                except Exception as e:
-                    print(f"⚠️ Error inserting data into Weaviate: {e}")
-
+    
+                    print(f"📝 Preparing to upload: {player_data}")
+                    try:
+                        collection_name = f"FantasyPlayers{writer_name}"
+                        weaviate_client.collections.get(collection_name).data.insert(player_data)
+    
+                        print(f"✅ Uploaded {player_name} from {sheet_name}")
+                    except Exception as e:
+                        print(f"⚠️ Error inserting data into Weaviate: {e}")
+    
     print(f"🎉 Upload for {writer_name} complete!")
-
+    
 # ✅ Upload Razzball now!
 upload_writer_data("Razzball")
 
