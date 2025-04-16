@@ -49,3 +49,7 @@ watchfiles==1.0.4
 weaviate==0.1.2
 weaviate-client==4.11.1
 websockets==15.0.1
+boto3
+botocore
+sqlalchemy
+sqlmodel

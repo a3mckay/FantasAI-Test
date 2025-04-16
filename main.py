@@ -2,21 +2,81 @@ import os
 import weaviate
 import openai
 import uvicorn
+import boto3
+from botocore.exceptions import NoCredentialsError
 from dotenv import load_dotenv
 from datetime import datetime
 from weaviate.classes.init import Auth
-from fastapi import FastAPI, Query, Request, HTTPException
 from weaviate.collections.classes.filters import Filter
-import re
+
+from fastapi import FastAPI, Query, Request, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
-from pydantic import BaseModel
 from fastapi.responses import FileResponse
-import pandas as pd
+from fastapi import Body
+from typing import List, Optional
+from pydantic import BaseModel
 from pathlib import Path
+import pandas as pd
+import re
+from models import WriterQueryLog
+from sqlalchemy import desc
+from collections import defaultdict, Counter
+
+# SQLModel + DB
+from sqlmodel import SQLModel, create_engine, Session, select
+from models import WriterProfile
+from models import WriterUpload
+
+# Database setup
+DB_PATH = "writer_data.db"
+engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
+
 
 # === Load environment variables ===
 load_dotenv()
+
+# === S3 Upload Helper ===
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    region_name=os.getenv("AWS_REGION")
+)
+
+def generate_signed_url(filename: str, expiration: int = 3600) -> str:
+    """
+    Generates a temporary, signed URL for accessing a private S3 file.
+    """
+    bucket_name = os.getenv("S3_BUCKET_NAME")
+    try:
+        url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": filename},
+            ExpiresIn=expiration
+        )
+        return url
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating signed URL: {str(e)}")
+
+
+def upload_file_to_s3(file, filename: str) -> str:
+    """
+    Uploads a file to S3 and returns the public URL.
+    """
+    bucket_name = os.getenv("S3_BUCKET_NAME")
+    try:
+        s3_client.upload_fileobj(
+            file.file,         # FastAPI UploadFile
+            bucket_name,
+            filename,
+            ExtraArgs={"ACL": "private"}  # use "public-read" if needed
+        )
+        return f"https://{bucket_name}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{filename}"
+    except NoCredentialsError:
+        raise HTTPException(status_code=500, detail="Missing AWS credentials")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 
 weaviate_url = os.getenv("WEAVIATE_URL")
 weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
@@ -24,6 +84,62 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 if not weaviate_url or not weaviate_api_key or not openai_api_key:
     raise ValueError("❌ Missing environment variables.")
+
+def log_writer_upload(writer_id: str, filename: str, file_type: str, s3_path: str):
+    upload = WriterUpload(
+        writer_id=writer_id,
+        filename=filename,
+        file_type=file_type,
+        s3_path=s3_path,
+    )
+    with Session(engine) as session:
+        session.add(upload)
+        session.commit()
+
+def log_query(
+    writer_id: str,
+    feature: str,
+    context: Optional[str] = None,
+    summary_player: Optional[str] = None,
+    players: Optional[list[str]] = None,
+    teamA: Optional[list[str]] = None,
+    teamB: Optional[list[str]] = None,
+):
+    players = players or []
+    teamA = teamA or []
+    teamB = teamB or []
+
+    query = WriterQueryLog(
+        writer_id=writer_id,
+        feature=feature,
+        context=context,
+        summary_player=summary_player,
+        player_1=players[0] if len(players) > 0 else None,
+        player_2=players[1] if len(players) > 1 else None,
+        player_3=players[2] if len(players) > 2 else None,
+        player_4=players[3] if len(players) > 3 else None,
+        player_5=players[4] if len(players) > 4 else None,
+        player_6=players[5] if len(players) > 5 else None,
+        player_7=players[6] if len(players) > 6 else None,
+        player_8=players[7] if len(players) > 7 else None,
+        player_9=players[8] if len(players) > 8 else None,
+        player_10=players[9] if len(players) > 9 else None,
+        teamA_1=teamA[0] if len(teamA) > 0 else None,
+        teamA_2=teamA[1] if len(teamA) > 1 else None,
+        teamA_3=teamA[2] if len(teamA) > 2 else None,
+        teamA_4=teamA[3] if len(teamA) > 3 else None,
+        teamA_5=teamA[4] if len(teamA) > 4 else None,
+        teamB_1=teamB[0] if len(teamB) > 0 else None,
+        teamB_2=teamB[1] if len(teamB) > 1 else None,
+        teamB_3=teamB[2] if len(teamB) > 2 else None,
+        teamB_4=teamB[3] if len(teamB) > 3 else None,
+        teamB_5=teamB[4] if len(teamB) > 4 else None,
+    )
+
+    with Session(engine) as session:
+        session.add(query)
+        session.commit()
+
 
 # === Connect to Weaviate ===
 weaviate_client = weaviate.connect_to_weaviate_cloud(
@@ -47,6 +163,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def on_startup():
+    SQLModel.metadata.create_all(engine)
 
 # === Writer Prompts ===
 WRITER_PROMPTS = {
@@ -405,7 +525,7 @@ def export_queries():
     timestamp_str = datetime.now().strftime("%Y-%m-%d-%H-%M")
     filename = f"halp-bot-export-{timestamp_str}.xlsx"
     export_path = f"/mnt/data/{filename}"
-
+    
     # === Writer Counts ===
     if "writer" in df.columns:
         writer_feature_counts = df.groupby(["writer", "feature"]).size().unstack(fill_value=0).reset_index()
@@ -424,6 +544,235 @@ def export_queries():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename
     )
+
+@app.get("/writer-profile/{writer_id}")
+def get_writer_profile(writer_id: str):
+    with Session(engine) as session:
+        profile = session.get(WriterProfile, writer_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Writer not found")
+        return profile
+
+@app.get("/writer-uploads/{writer_id}")
+def get_writer_uploads(writer_id: str):
+    with Session(engine) as session:
+        statement = select(WriterUpload).where(WriterUpload.writer_id == writer_id)
+        results = session.exec(statement).all()
+        return results
+
+@app.get("/writer-analytics/summary")
+def get_writer_analytics_summary(writer_id: str):
+    try:
+        df = pd.read_excel("user_queries.xlsx")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read Excel file: {str(e)}")
+
+    # Filter rows by writer (if filtering by writer_id later — for now we assume shared log)
+    summary_counts = df["feature"].value_counts().to_dict()
+
+    # Count total players mentioned
+    player_cols = ["summary_player"] + [f"player_{i}" for i in range(1, 11)]
+    mentioned_players = set()
+
+    for col in player_cols:
+        if col in df.columns:
+            mentioned_players.update(df[col].dropna().unique())
+
+    total_players_mentioned = len(mentioned_players)
+
+    # Get upload counts from DB
+    with Session(engine) as session:
+        statement = select(WriterUpload).where(WriterUpload.writer_id == writer_id)
+        uploads = session.exec(statement).all()
+        uploads_by_type = {}
+        for upload in uploads:
+            uploads_by_type[upload.file_type] = uploads_by_type.get(upload.file_type, 0) + 1
+
+    return {
+        "query_counts_by_feature": summary_counts,
+        "total_unique_players_mentioned": total_players_mentioned,
+        "upload_counts_by_type": uploads_by_type
+    }
+
+@app.get("/writer-analytics/queries")
+def get_recent_queries(
+    writer_id: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    start_date: Optional[str] = Query(None, description="ISO 8601 date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="ISO 8601 date (YYYY-MM-DD)")
+):
+    with Session(engine) as session:
+        query = select(WriterQueryLog)
+
+        if writer_id:
+            query = query.where(WriterQueryLog.writer_id == writer_id)
+
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.strip())
+                query = query.where(WriterQueryLog.timestamp >= start_dt)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD.")
+
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.strip())
+                query = query.where(WriterQueryLog.timestamp <= end_dt)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD.")
+
+        query = query.order_by(desc(WriterQueryLog.timestamp)).offset(offset).limit(limit)
+        results = session.exec(query).all()
+
+    return {
+        "queries": [r.dict() for r in results],
+        "limit": limit,
+        "offset": offset,
+        "total_returned": len(results)
+    }
+
+@app.get("/writer-analytics/queries/download")
+def download_queries_csv(
+    writer_id: Optional[str] = None,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    with Session(engine) as session:
+        query = select(WriterQueryLog)
+
+        if writer_id:
+            query = query.where(WriterQueryLog.writer_id == writer_id)
+
+        if start_date:
+            try:
+                query = query.where(WriterQueryLog.timestamp >= datetime.fromisoformat(start_date.strip()))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD.")
+
+        if end_date:
+            try:
+                query = query.where(WriterQueryLog.timestamp <= datetime.fromisoformat(end_date.strip()))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD.")
+
+        logs = session.exec(query).all()
+
+    # Convert to DataFrame
+    df = pd.DataFrame([log.dict() for log in logs])
+
+    # Save to a temp CSV file
+    csv_path = "writer_queries_export.csv"
+    df.to_csv(csv_path, index=False)
+
+    return FileResponse(csv_path, media_type="text/csv", filename="writer_queries_export.csv")
+
+@app.get("/writer-analytics/top-players")
+def get_top_players(
+    writer_id: Optional[str] = None,
+    top_n: int = 10,
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format")
+):
+    with Session(engine) as session:
+        query = select(WriterQueryLog)
+
+        if writer_id:
+            query = query.where(WriterQueryLog.writer_id == writer_id)
+
+        if start_date:
+            try:
+                start = datetime.strptime(start_date, "%Y-%m-%d")
+                query = query.where(WriterQueryLog.timestamp >= start)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD.")
+
+        if end_date:
+            try:
+                end = datetime.strptime(end_date, "%Y-%m-%d")
+                query = query.where(WriterQueryLog.timestamp <= end)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD.")
+
+        logs = session.exec(query).all()
+
+    # Count players
+    feature_counts = defaultdict(Counter)
+    all_players = Counter()
+
+    for log in logs:
+        feature = log.feature
+        player_fields = [
+            log.summary_player,
+            log.player_1, log.player_2, log.player_3, log.player_4, log.player_5,
+            log.player_6, log.player_7, log.player_8, log.player_9, log.player_10
+        ]
+        for player in player_fields:
+            if player:
+                feature_counts[feature][player] += 1
+                all_players[player] += 1
+
+    return {
+        "top_overall": all_players.most_common(top_n),
+        "top_by_feature": {
+            feature: counts.most_common(top_n)
+            for feature, counts in feature_counts.items()
+        }
+    }
+
+@app.post("/upload-avatar")
+async def upload_avatar(file: UploadFile = File(...), writer: str = "IBW"):
+    filename = f"{writer}/avatar/{datetime.now().strftime('%Y%m%d-%H%M%S')}-{file.filename}"
+    upload_file_to_s3(file, filename)
+    signed_url = generate_signed_url(filename)
+    log_writer_upload(writer, filename, "avatar", filename)
+    return {"message": "Avatar uploaded successfully", "url": signed_url}
+
+
+
+@app.post("/upload-ranking")
+async def upload_ranking(file: UploadFile = File(...), writer: str = "IBW"):
+    filename = f"{writer}/ranking/{datetime.now().strftime('%Y%m%d-%H%M%S')}-{file.filename}"
+    upload_file_to_s3(file, filename)
+    signed_url = generate_signed_url(filename)
+    log_writer_upload(writer, filename, "ranking", filename)
+    return {"message": "Ranking uploaded successfully", "url": signed_url}
+
+
+
+@app.post("/upload-article")
+async def upload_article(file: UploadFile = File(...), writer: str = "IBW"):
+    filename = f"{writer}/article/{datetime.now().strftime('%Y%m%d-%H%M%S')}-{file.filename}"
+    upload_file_to_s3(file, filename)
+    signed_url = generate_signed_url(filename)
+    log_writer_upload(writer, filename, "article", filename)
+    return {"message": "Article uploaded successfully", "url": signed_url}
+
+
+@app.post("/writer-profile")
+def upsert_writer_profile(profile: WriterProfile = Body(...)):
+    profile.last_updated = datetime.now().isoformat()
+    with Session(engine) as session:
+        existing = session.get(WriterProfile, profile.writer_id)
+        if existing:
+            for field, value in profile.dict().items():
+                setattr(existing, field, value)
+        else:
+            session.add(profile)
+        session.commit()
+    return {"message": "Profile saved", "writer_id": profile.dict().get("writer_id")}
+
+@app.post("/dev/log-test-query")
+def log_test_query():
+    log_query(
+        writer_id="IBW",
+        feature="compare",
+        context="Testing log insert from /log-test-query",
+        summary_player="Corbin Carroll",
+        players=["Corbin Carroll", "Jackson Chourio"]
+    )
+    return {"message": "Test query logged"}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
