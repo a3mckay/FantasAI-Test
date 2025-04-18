@@ -8,7 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app code
+# Force update main.py before full copy
+COPY main.py .
 COPY . .
 
 # Expose the port
