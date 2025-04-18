@@ -142,16 +142,23 @@ def log_query(
 
 
 # === Connect to Weaviate ===
-weaviate_client = weaviate.connect_to_weaviate_cloud(
-    cluster_url=weaviate_url,
-    auth_credentials=Auth.api_key(weaviate_api_key),
-    skip_init_checks=True
-)
+print("🌐 Attempting to connect to Weaviate...")
 
-if weaviate_client.is_ready():
-    print("✅ Successfully connected to Weaviate!")
-else:
-    raise ConnectionError("❌ Failed to connect to Weaviate.")
+try:
+    weaviate_client = weaviate.connect_to_weaviate_cloud(
+        cluster_url=weaviate_url,
+        auth_credentials=Auth.api_key(weaviate_api_key),
+        skip_init_checks=True
+    )
+    print("✅ Connected to Weaviate client object.")
+    if weaviate_client.is_ready():
+        print("✅ Weaviate is ready to receive queries.")
+    else:
+        print("❌ Weaviate client initialized but not ready.")
+except Exception as e:
+    print(f"🔥 Exception while connecting to Weaviate: {e}")
+    raise
+
 
 # === FastAPI Setup ===
 app = FastAPI()
@@ -166,7 +173,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    SQLModel.metadata.create_all(engine)
+    print("🚀 Creating database tables (if needed)...")
+    try:
+        SQLModel.metadata.create_all(engine)
+        print("✅ Database tables ensured.")
+    except Exception as e:
+        print(f"🔥 Failed to create DB tables: {e}")
+        raise
+
 
 # === Writer Prompts ===
 WRITER_PROMPTS = {
