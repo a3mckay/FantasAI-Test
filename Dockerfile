@@ -9,7 +9,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Force update main.py before full copy
-COPY main.py .
+COPY main.py ./main.py
 COPY . .
 
 # Expose the port
