@@ -27,6 +27,9 @@ from sqlmodel import SQLModel, create_engine, Session, select
 from models import WriterProfile
 from models import WriterUpload
 
+print("🔁 This should absolutely appear if the code is live")
+
+
 # Database setup
 DB_PATH = "writer_data.db"
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
