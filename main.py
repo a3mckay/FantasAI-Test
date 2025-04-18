@@ -167,7 +167,7 @@ def on_startup():
         print("❌ Missing Weaviate env vars.")
         raise RuntimeError("Missing WEAVIATE_URL or WEAVIATE_API_KEY")
 
-    print("🌐 Attempting to connect to Weaviate...")
+    print("🌐 Attempting to connect to Weaviate...", flush=True)
 
     try:
         global weaviate_client
@@ -176,14 +176,17 @@ def on_startup():
             auth_credentials=Auth.api_key(weaviate_api_key),
             skip_init_checks=True
         )
-        print("✅ Connected to Weaviate client object.")
+        print("✅ Connected to Weaviate client object.", flush=True)
+
         if weaviate_client.is_ready():
-            print("✅ Weaviate is ready to receive queries.")
+            print("✅ Weaviate is ready to receive queries.", flush=True)
         else:
-            print("❌ Weaviate client initialized but not ready.")
+            print("❌ Weaviate client initialized but not ready.", flush=True)
+
     except Exception as e:
-        print(f"🔥 Exception while connecting to Weaviate: {e}")
+        print(f"🔥 Exception while connecting to Weaviate: {e}", flush=True)
         raise
+
 
 # === Writer Prompts ===
 WRITER_PROMPTS = {
