@@ -181,6 +181,31 @@ def on_startup():
         print(f"🔥 Failed to create DB tables: {e}")
         raise
 
+    # Validate environment variables
+    weaviate_url = os.getenv("WEAVIATE_URL")
+    weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
+
+    if not weaviate_url or not weaviate_api_key:
+        print("❌ Missing Weaviate env vars.")
+        raise RuntimeError("Missing WEAVIATE_URL or WEAVIATE_API_KEY")
+
+    print("🌐 Attempting to connect to Weaviate...")
+
+    try:
+        global weaviate_client
+        weaviate_client = weaviate.connect_to_weaviate_cloud(
+            cluster_url=weaviate_url,
+            auth_credentials=Auth.api_key(weaviate_api_key),
+            skip_init_checks=True
+        )
+        print("✅ Connected to Weaviate client object.")
+        if weaviate_client.is_ready():
+            print("✅ Weaviate is ready to receive queries.")
+        else:
+            print("❌ Weaviate client initialized but not ready.")
+    except Exception as e:
+        print(f"🔥 Exception while connecting to Weaviate: {e}")
+        raise
 
 # === Writer Prompts ===
 WRITER_PROMPTS = {
