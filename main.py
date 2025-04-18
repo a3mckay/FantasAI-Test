@@ -3,6 +3,7 @@ import weaviate
 import openai
 import uvicorn
 import boto3
+import sys
 from botocore.exceptions import NoCredentialsError
 from dotenv import load_dotenv
 from datetime import datetime
@@ -77,14 +78,6 @@ def upload_file_to_s3(file, filename: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-
-weaviate_url = os.getenv("WEAVIATE_URL")
-weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
-openai_api_key = os.getenv("OPENAI_API_KEY")
-
-if not weaviate_url or not weaviate_api_key or not openai_api_key:
-    raise ValueError("❌ Missing environment variables.")
-
 def log_writer_upload(writer_id: str, filename: str, file_type: str, s3_path: str):
     upload = WriterUpload(
         writer_id=writer_id,
@@ -140,24 +133,9 @@ def log_query(
         session.add(query)
         session.commit()
 
-
-# === Connect to Weaviate ===
-print("🌐 Attempting to connect to Weaviate...")
-
-try:
-    weaviate_client = weaviate.connect_to_weaviate_cloud(
-        cluster_url=weaviate_url,
-        auth_credentials=Auth.api_key(weaviate_api_key),
-        skip_init_checks=True
-    )
-    print("✅ Connected to Weaviate client object.")
-    if weaviate_client.is_ready():
-        print("✅ Weaviate is ready to receive queries.")
-    else:
-        print("❌ Weaviate client initialized but not ready.")
-except Exception as e:
-    print(f"🔥 Exception while connecting to Weaviate: {e}")
-    raise
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    raise ValueError("❌ Missing OPENAI_API_KEY")
 
 
 # === FastAPI Setup ===
