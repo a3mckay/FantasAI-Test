@@ -29,6 +29,8 @@ from models import WriterUpload
 
 print("🔁 This should absolutely appear if the code is live")
 
+raise RuntimeError("☠️ THIS SHOULD CRASH IF DEPLOYED ☠️")
+
 
 # Database setup
 DB_PATH = "writer_data.db"
